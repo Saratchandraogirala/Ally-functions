@@ -1,211 +1,149 @@
 // import {app} from "firebase-functions";
 
 const functions = require('firebase-functions');
-const admin = require('firebase-admin');
 const express = require('express')();
 const app = express();
 var onRequest = require('request');
-const firebase  = require('firebase');
-firebase.initialiseApp();
-const db  = admin.firestore();
+const FBAuth = require('./util/fbAuth');  
 let token, userId;
+const {db} = require('./util/admin');
+const {signup, login} = require('./handlers/users')
 
+// Create and Deploy Your First Cloud Functions
+// https://firebase.google.com/docs/functions/write-firebase-functions
 
-const config = {
-    apiKey: "AIzaSyC7g52HFfcVqbEW6p_pQd64AzbPhJr6Gzk",
-    authDomain: "ally-63631.firebaseapp.com",
-    databaseURL: "https://ally-63631.firebaseio.com",
-    projectId: "ally-63631",
-    storageBucket: "ally-63631.appspot.com",
-    messagingSenderId: "495180132018",
-    appId: "1:495180132018:web:a7179c40441c338d0963ab",
-    measurementId: "G-RX662B05NK"
-};
-
-admin.initialiseApp();
-
-// // Create and Deploy Your First Cloud Functions
-// // https://firebase.google.com/docs/functions/write-firebase-functions
-//
 exports.helloWorld = functions.https.onRequest((request, response) => {
   response.send("Hello World!");
  });
 
-app.get('/screams', (req, res) =>{
-  db
-  .collection('screams')
-  .orderBy('createdAt','desc')
-  .get()
-  .then((data) => {
-    let screams = [];
-    data.forEach((doc) => {
-      screams.push({
-      screamId: doc.id,
-      body: doc.data().body,
-      userHandle: doc.data.userHandle,
-      createdAt: doc.data.createdAt
-      })
-    });
-    return res.json(screams );
-  })
-  .catch((err) => console.error());
-})
-
-const FBAuth = (req, res, next) => {
-  if(req.headers.authorization && request.headers.authorization.startsWith('Bearer')){
-    idToken = req.headers.authorization.split('Bearer')[1];
-  }
-  else{
-    return res.status(403).json({error: 'Unauthorized'});
-  }
-
-  admin.auth().verifyIdToken(idToken)
-  .then(decodedToken => {
-    request.user = decodedToken;
-    return db.collection('uses')
-    .where('userId', '==', req.user.uid)
-    .limit(1)
-    .get();
-  })
-  .then(data => {
-    req.user.handle = data.docs[0].data().handle;
-    return next();
-  })
-  .catch(err => {
-    console.error('Error while verifying token', err);
-    return res.status(400).json({body: 'Body must not be Empty'});
-  })
-}
+const { getAllScreams, 
+  postOneScream, getScream, commentOnScream, likeScream, 
+  unlikeScream, deleteScream, getUserDetails, 
+  markNotificationsRead} = require('./handlers/screams');
 
 
- app.post('/scream', (request, response) => {
-  if(request.method !=='POST'){
-    return res.status(400).json({error: 'Method not allowed'})
-  }
-  
-  const newScream = { 
-   body: request.body.body,
-   userHandle: request.body.userHandle, 
-   createdAt: new Date().toISOString()
-  };
+//Scream routes
+app.get('/screams',getAllScreams)
+app.post('/scream', FBAuth, postOneScream);
+app.get('/scream/:screamId', getScream);
+app.delete('/scream/:screamId', FBAuth, deleteScream)
+app.get('/scream?:screamId/unlike',FBAuth, unlikeScream);
+app.get('/scream?:screamId/like',FBAuth, likeScream);
+app.post('/scream/:screamId/comment',FBAuth, commentOnScream)
 
-  db
-  .collection('screams')
-  .add(newScream)
-  .then((doc) => {
-    res.json({message: 'document ${doc.id} created successfully'});
-  })
-  .catch((err) => {
-      res.status(500).json({error: 'something went wrong'});
-      console.error(err);
-  });
- });
+ //Users routes
+app.post('/signup', signup); 
+app.post('/login', login)
+app.post('/user/image', FBAuth, uploadImage);
+app.post('/user', FBAuth, adduserDetails);
+app.get('/user', FBAuth, getAuthenticatedUser);
+app.get('/user/:handle', getUserDetails);
+app.post('/notifications',markNotificationsRead);
 
- const isEmail = (email) => {
-  const emailRegEx = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
-  if(email.match(regEx)) return true;
-  else return false;
-}
 
- const IsEmpty = (string) => {
-   if(string.trim() === ' ') return true;
-   else return false;
- }
+ exports.api = functions.https.onRequest(app);
 
- // Signup route
- app.post('/signup', (req,res) => {
-   const newUser = {
-     email: req.body.email,
-     password: req.body.password,
-     confirmPassword: req.body.confirmPassword,
-     handle: req.body.handle,
-   }
-
-   let errors = {};
-
-   if(IsEmpty(newUser.email)){
-     errors.email = 'Email must not be empty';}
-     else {if(!isEmail(newUser.email)){
-       errors.email = 'Email must be a valid email'
-     }}
-   
-  
-   if(IsEmpty(newUser.password))errors.password = 'Must not be empty'
-   if(newUser.password !== newUser.confirmPassword) errors.confirmPassword = 'Passwords must match'
-
-   if(IsEmpty(newUser.handle))errors.handle = 'Must not be empty'
-   
-   if(Object.keys(errors).length > 0) return res.status(400).json(errors);
-   
-  //TODO validate data
-   db.doc('/users/${newUser.handle}').get
+ exports.createNotificationOnLike = functions.region('europe-east1').firestore.document('/likes/{id}')
+ .onCreate((snapshot) => {
+   return db.doc('/screams/${snapshot.data().screamId}').get() 
    .then(doc => {
-     if(doc.exists){
-       return res.status(400).json({handle: 'this handle is already taken'})
-     }
-     else{
-       return
-   firebase.auth().createUserWithEmailAndPAssword(newUser.email. new.password)
+     if(doc.exists && doc.data().userHandle !== snapshot.data().userHandle){
+       return db.doc('/notifications/${snapshot.id}').set({
+         createdAt: new Date().toISOString(),
+         recipient: doc.data().userHandle,
+         sender: snapshot.data().userHandle,
+         type: 'like',
+         read: false, 
+         screamId: doc.id 
+       });
      }
    })
-   .then(data => {
-     userId = data.user.uid;
-     const userId = data.user.getIdToken();
-      
-   })
-   .then(token => {
-     token = token;
-     const userCredentials = {
-      hanlde: newUser.handle,
-      email: newUser.email,
-      createdAt: Date.toISOString(),
-     };
-     return db.doc('/users/${newUser.handle}').set(userCredentials)
-     .then(() => {
-        return express.status(201).json({token});
-     })
+    .catch(err => {
+      console.error(err);
+      return;
+    })
+ })
+
+exports.deleteNotificationOnunLike = functions
+.region('europe=east1')
+.firestore.document('likes/{id}')
+.omDelete((snapshot) => {
+ return db.doc('notifications/${snapshot.id}')
+  .delete()
+  .then(() => {
+    return; 
+  })
+})
+ exports.createNotificationOnComment = functions 
+ .region('europe-east1')
+ .firestore.document('comments/{id}')
+ .onCreate((snapshot) => {
+  return db.doc('/screams/${snapshot.data().screamId}').get() 
+  .then(doc => {
+    if(doc.exists && doc.data().userHandle !== snapshot.data().userHandle){
+      return db.doc('/notifications/${snapshot.id}').set({
+        createdAt: new Date().toISOString(),
+        recipient: doc.data().userHandle,
+        sender: snapshot.data().userHandle,
+        type: 'comment',
+        read: false, 
+        screamId: doc.id 
+      });
+    }
+  })
+  .then(() => {
+    return ;
    })
    .catch(err => {
      console.error(err);
-     if(err.code === 'auth/email-already-in-use'){
-       return res.status(400).json({email: 'Email already in use'})
-     }
-     else{
-       return res.status(500).json({error: error.code})
-     }
-  });
-}); 
+     return;
+   })
+ })
+ 
+ exports.onUserImageChange = functions.region('europe-east1').firestore.document('/users/{userId}')
+ .onUpdate((change) => {
+   console.log(change.before.data());
+   console.log(change.after.data());
+   if(change.before.data().imageUrl !== change.after.data().imageUrl){
+    comsole.log('image has changed');
+    let batch = db.batch();
+    return db.collection('screams').where('userHandle', '==', change.before.data().handle).get()
+    .then((data) => {
+      data.forEach(doc => {
+        const scream = db.doc('/screams/${doc.id}');
+        batch.update(scream, { userImage: change.after.data().imageUrl});
+      })
+      return batch.commit();
+    });
+    else return true;
+   }
+ })
 
-app.post('/login', (req, res) =>{
-  const user = {
-    email: req.body.email,
-    password: req.body.password
-  };
-
-  let errors = {};
-  if(IsEmpty(user.email))errors.email = 'Must not be Empty';
-  if(IsEmpty(user.password))errors.password = 'Must not be Empty';
-
-  if(Object.keys(errors).length > 0)return res.status(400).json(errors);
-  firebase.auth().signInWithEmailAndPassword(user.email, user.password)
+exports.onScreamDelete = functions.region('europe-east1').firestore.document('/screams/{screamId}')
+.onDelete((snapshot, context) => {
+  const screamId = context.params.screamId;
+  const batch = db.batch();
+  return db.collection('comments').where('screamId', '==',screamId).get()
   .then(data => {
-    return data.getIdToken();
+    data.forEach(doc => {
+      batch.delete(db.doc('/comments/${doc.id}'));
+    })
+    return db.doc.collection('likes').where('screamId', '==', screamId).get();
   })
-  .then(token => {
-    return res.json({token});
+  .then(data => {
+    data.forEach(doc => {
+      batch.delete(db.doc('/likes/${doc.id}'));
+    })
+    return db.doc.collection('notifications').where('screamId', '==', screamId).get();
   })
-  .catch(err => {
-    console.error(err);
-    if(err.code == 'auth/wrong-password'){
-      return res.status(403).json({general: 'Wrong credentials, please try again'});
-    }
-    else{
-      return status(500).json({error: err.code})
-    }
-    
+  .then(data => {
+    data.forEach(doc => {
+      batch.delete(db.doc('/notifications/${doc.id}'));
+    })
+    return batch.commit();
   })
+  .catch(err => console.error(err));
 })
- exports.api = functions.https.onRequest(app);
 
- app.listen(3000,() => console.log('Listening on port: ${port}...'))
+// app.listen(3000,() => console.log('Listening on port: ${port}...'))
 
