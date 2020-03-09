@@ -105,7 +105,7 @@ exports.deleteNotificationOnunLike = functions
    console.log(change.before.data());
    console.log(change.after.data());
    if(change.before.data().imageUrl !== change.after.data().imageUrl){
-    comsole.log('image has changed');
+    console.log('image has changed');
     let batch = db.batch();
     return db.collection('screams').where('userHandle', '==', change.before.data().handle).get()
     .then((data) => {
@@ -115,7 +115,7 @@ exports.deleteNotificationOnunLike = functions
       })
       return batch.commit();
     });
-    else return true;
+    //return true;
    }
  })
 
