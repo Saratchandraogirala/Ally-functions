@@ -23,6 +23,9 @@ const { getAllScreams,
 
 
 //Scream routes
+app.get('/',function(req,res){
+  res.render('scream.js');
+})
 app.get('/screams',getAllScreams)
 app.post('/scream', FBAuth, postOneScream);
 app.get('/scream/:screamId', getScream);
