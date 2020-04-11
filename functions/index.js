@@ -1,4 +1,4 @@
-// import {app} from "firebase-functions";
+import {app} from "firebase-functions";
 
 const functions = require('firebase-functions');
 const express = require('express')();
